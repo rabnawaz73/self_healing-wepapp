@@ -67,19 +67,22 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx for deployment
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push container
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: cloudrescue
-          IMAGE_TAG: sha-${{ github.sha }}
-        run: |
-          docker build -f docker/Dockerfile -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_ENV"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.login-ecr.outputs.registry }}/cloudrescue:sha-${{ github.sha }}
 
       - name: Deploy container to Lambda
         env:
-          IMAGE_URI: ${{ env.IMAGE_URI }}
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/cloudrescue:sha-${{ github.sha }}
         run: |
           if error=$(aws lambda get-function \
             --function-name cloudrescue \
