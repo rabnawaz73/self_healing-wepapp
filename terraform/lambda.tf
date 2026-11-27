@@ -65,6 +65,17 @@ resource "aws_lambda_function_url" "app" {
   }
 }
 
+resource "aws_lambda_permission" "function_url_invoke" {
+  count = var.image_uri == "" ? 0 : 1
+
+  statement_id             = "FunctionURLInvokeAllowPublicAccess"
+  action                   = "lambda:InvokeFunction"
+  function_name            = aws_lambda_function.app[0].function_name
+  principal                = "*"
+  invoked_via_function_url = true
+  depends_on               = [aws_lambda_function_url.app]
+}
+
 output "ecr_repository_url" {
   value = aws_ecr_repository.app.repository_url
 }

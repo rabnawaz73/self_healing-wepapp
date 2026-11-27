@@ -16,6 +16,10 @@ GitHub OIDC, and Lambda versions and aliases.
 - GitHub OIDC
 - AWS CloudWatch
 
+The Lambda Function URL is configured for unauthenticated public access. Anyone
+with the URL can invoke it; it has no built-in rate limiting or web application
+firewall.
+
 ## Project structure
 
 ```text
