@@ -34,10 +34,22 @@ variable "github_owner" {
   default     = "rabnawaz73"
 }
 
+variable "github_owner_id" {
+  description = "Immutable GitHub account ID used in the OIDC subject claim"
+  type        = string
+  default     = "155346797"
+}
+
 variable "github_repository" {
   description = "GitHub repository allowed to assume the deployment role"
   type        = string
   default     = "self_healing-wepapp"
+}
+
+variable "github_repository_id" {
+  description = "Immutable GitHub repository ID used in the OIDC subject claim"
+  type        = string
+  default     = "1466208240"
 }
 
 variable "github_branch" {
