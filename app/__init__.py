@@ -1,0 +1,1 @@
+"""CloudRescue application package."""

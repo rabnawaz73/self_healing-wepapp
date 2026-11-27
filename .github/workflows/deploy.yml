@@ -1,0 +1,122 @@
+name: CloudRescue container and infrastructure
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test-and-container:
+    name: Test and build container
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run automated tests
+        run: pytest -v
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: false
+          load: true
+          tags: cloudrescue:test
+
+  deploy:
+    name: Build, push, and deploy
+    needs: [test-and-container, validate-terraform]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: cloudrescue
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          docker build -f docker/Dockerfile -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Deploy container to Lambda
+        env:
+          IMAGE_URI: ${{ env.IMAGE_URI }}
+        run: |
+          if error=$(aws lambda get-function \
+            --function-name cloudrescue \
+            --query 'Configuration.FunctionName' \
+            --output text 2>&1); then
+            aws lambda update-function-code \
+              --function-name cloudrescue \
+              --image-uri "$IMAGE_URI" \
+              --publish
+            aws lambda wait function-updated \
+              --function-name cloudrescue
+          elif [[ "$error" == *"ResourceNotFoundException"* ]]; then
+            echo "::notice::Image pushed to ECR; Terraform will create the Lambda function."
+          else
+            printf '%s\n' "$error" >&2
+            exit 1
+          fi
+
+  validate-terraform:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Initialize Terraform
+        working-directory: terraform
+        run: terraform init -backend=false
+
+      - name: Check formatting
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+      - name: Validate configuration
+        working-directory: terraform
+        run: terraform validate
